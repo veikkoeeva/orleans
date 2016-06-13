@@ -47,6 +47,7 @@
       <HintPath>$(SolutionDir)packages\EnterpriseLibrary.TransientFaultHandling.6.0.1304.0\lib\portable-net45+win+wp8\Microsoft.Practices.EnterpriseLibrary.TransientFaultHandling.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="Newtonsoft.Json, Version=6.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL" />
     <Reference Include="System" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Configuration" />
@@ -82,6 +83,7 @@
     <Compile Include="Storage\Provider\LoggerExtensions.cs" />
     <Compile Include="Storage\Provider\Instrumentation\PerformanceCounterDefinition.cs" />
     <Compile Include="Storage\Provider\ReadEntry.cs" />
+    <Compile Include="Storage\Provider\RelationalStorageProvider.cs" />
     <Compile Include="Storage\Provider\ShardBatcher.cs" />
     <Compile Include="Storage\Provider\SqlColumns.cs" />
     <Compile Include="Storage\Provider\SqlDataManager.cs" />
