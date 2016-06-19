@@ -17,7 +17,26 @@ namespace Test.Implementation
             State.FirstName = props.FirstName;
             State.LastName = props.LastName;
             State.Gender = props.Gender;
-            return WriteStateAsync();
+            try
+            {
+                return WriteStateAsync();
+            }
+            catch(Exception ex)
+            {
+                throw;
+            }
+        }
+
+        Task IPerson.ClearState()
+        {
+            try
+            {
+                return ClearStateAsync();
+            }
+            catch(Exception ex)
+            {
+                throw;
+            }
         }
 
         Task<string> IPerson.GetFirstName()

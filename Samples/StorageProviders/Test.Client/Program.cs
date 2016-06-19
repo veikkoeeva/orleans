@@ -33,15 +33,17 @@ namespace Test.Client
             if ( name != null)
             {
                 Console.WriteLine("\n\nThis was found in the persistent store: {0}, {1}, {2}\n\n",
-                    name, 
-                    grain.GetLastName().Result, 
+                    name,
+                    grain.GetLastName().Result,
                     grain.GetGender().Result.ToString());
             }
-            else
+            //else
             {
                 grain.SetPersonalAttributes(new PersonalAttributes { FirstName = "John", LastName = "Doe", Gender = GenderType.Male }).Wait();
                 Console.WriteLine("\n\nWe just wrote something to the persistent store. Please verify!\n\n");
             }
+
+            grain.ClearState();
 
             Console.WriteLine("Orleans Silo is running.\nPress Enter to terminate...");
             Console.ReadLine();

@@ -21,6 +21,7 @@ namespace Test.Interfaces
     public interface IPerson : IGrainWithIntegerKey
     {
         Task SetPersonalAttributes(PersonalAttributes person);
+        Task ClearState();
 
         Task<string> GetFirstName();
         Task<string> GetLastName();
