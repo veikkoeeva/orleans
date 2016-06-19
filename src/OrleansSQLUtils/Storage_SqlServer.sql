@@ -2,17 +2,17 @@
 -- The design criteria for this table are:
 --
 -- 1. It can contain arbitrary content serialized as binary, XML or JSON. These formats
--- are supported to allow one to take advantange of in-storage processing capabilities for
+-- are supported to allow one to take advantage of in-storage processing capabilities for
 -- these types if required. This should not incur extra cost on storage.
 --
 -- 2. The table design should scale with the idea of tens or hundreds (or even more) types
 -- of grains that may operate with even hundreds of thousands of grain IDs within each
 -- type of a grain.
 --
--- 3. The table and its associated operations should remain stable. There shoud not be
+-- 3. The table and its associated operations should remain stable. There should not be
 -- structural reason for unexpected delays in operations. It should be possible to also
 -- insert data reasonably fast without resource contention.
--- 
+--
 -- 4. For reasons in 2. and 3., the index should be as narrow as possible so it fits well in
 -- memory and should it require maintenance, it should be non-resource intensive. For this
 -- reason the index is NONCLUSTERED by design. Currently the entity is recognized in the storage by
@@ -32,9 +32,9 @@
 -- could be to use table compression.
 --
 -- 6. For the aforementioned reasons, grain state DELETE will set NULL to the data fields
--- and the Version number to -1. This should alleviate the need for index or statistics maintenance
--- with the loss of some bytes of storage space. The table can be scrubbed in a separate
--- maintenance operation.
+-- and updates the Version number normally. This should alleviate the need for index or
+-- statistics maintenance with the loss of some bytes of storage space. The table can be scrubbed
+-- in a separate maintenance operation.
 DROP TABLE Storage;
 CREATE TABLE Storage
 (
@@ -67,10 +67,8 @@ CREATE TABLE Storage
     ModifiedOn DATETIME2(3) NOT NULL,
 
     -- If this particular object has been deleted from the database
-    -- or not. The objects can be inserted, deleted and reinserted.
-    -- Would it be beneficial to set the Payload* columns to NULL
-    -- to save space but still to avoid index fragmentation?
-    Version INT NOT NULL
+    -- or not. The objects can be inserted, deleted and reinserted.    
+    Version INT NULL
 
     -- The following would in principle be the primary key, but it would be too thick
 	-- to be indexed, so the the values are hashed and only collisions will be solved
@@ -219,7 +217,7 @@ DECLARE @GrainIdHash AS INT = 1;
 DECLARE @GrainIdString AS NVARCHAR(150) = N'GrainIdString_1';
 DECLARE @GrainTypeHash  AS INT = 1;
 DECLARE @GrainTypeString AS NVARCHAR(150) = N'GrainTypeString_1';
-DECLARE @ServideId AS NVARCHAR(150) = N'TestService';
+DECLARE @ServiceId AS NVARCHAR(150) = N'TestService';
 
 DECLARE @PayloadBinary AS VARBINARY(MAX);
 DECLARE @PayloadJson AS NVARCHAR(MAX);
@@ -240,81 +238,82 @@ DECLARE @GrainStateVersion AS INT = 0;
 --
 -- If the version number explicitly returned is still the same, Orleans interprets it so the update did not succeed
 -- and throws an InconsistentStateException.
--- 
+--
 -- See further information at See further at http://dotnet.github.io/orleans/Getting-Started-With-Orleans/Grain-Persistence.
 BEGIN TRANSACTION;
 SET XACT_ABORT, NOCOUNT ON;
 
-DECLARE @ROWCOUNT AS INT = 0;
 DECLARE @NewGrainStateVersion AS INT = @GrainStateVersion;
 
--- If the @GrainStateVersion is not zero, this branch assumes it exists
--- in this database with defined auxilliary data structures.
-IF @GrainStateVersion > 0
+-- If the @GrainStateVersion is not zero, this branch assumes it exists in this database.
+-- The NULL value is supplied by Orleans when the state is new.
+IF @GrainStateVersion IS NOT NULL
 BEGIN
-    UPDATE Storage 
-    SET	
-	    PayloadBinary = @PayloadBinary,
-	    PayloadJson = @PayloadJson,
-	    PayloadXml = @PayloadXml,
-	    ModifiedOn = GETUTCDATE(),
-	    Version = Version + 1,
-        @NewGrainStateVersion = Version + 1
-    WHERE
-	    GrainIdHash = @GrainIdHash AND @GrainIdHash IS NOT NULL
-        AND GrainTypeHash = @GrainTypeHash AND @GrainTypeHash IS NOT NULL
-        AND GrainIdString = @GrainIdString AND @GrainIdString IS NOT NULL
-        AND GrainTypeString = @GrainTypeString AND @GrainTypeString IS NOT NULL
-		AND ServiceId = @ServideId AND @ServideId IS NOT NULL
-        AND Version = @GrainStateVersion AND @GrainStateVersion IS NOT NULL;	
+	UPDATE Storage
+	SET
+		PayloadBinary = @PayloadBinary,
+		PayloadJson = @PayloadJson,
+		PayloadXml = @PayloadXml,
+		ModifiedOn = GETUTCDATE(),
+		Version = Version + 1,
+		@NewGrainStateVersion = Version + 1
+	WHERE
+		GrainIdHash = @GrainIdHash AND @GrainIdHash IS NOT NULL
+		AND GrainTypeHash = @GrainTypeHash AND @GrainTypeHash IS NOT NULL
+		AND GrainIdString = @GrainIdString AND @GrainIdString IS NOT NULL
+		AND GrainTypeString = @GrainTypeString AND @GrainTypeString IS NOT NULL
+		AND ServiceId = @ServiceId AND @ServiceId IS NOT NULL
+		AND Version IS NOT NULL AND Version = @GrainStateVersion AND @GrainStateVersion IS NOT NULL
+		OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));
 END
 
 -- If no rows were updated, the reason could be that a new storage may have
--- been brought online or it has has been reset somehow while the silo is running
+-- been brought online or it has been reset somehow while the silo is running
 -- having the grains in memory. Let's try to insert them anyhow as it is more
 -- more robust.
 IF @@ROWCOUNT = 0
 BEGIN
-    INSERT INTO Storage
-    (
-	    GrainIdHash,
-	    GrainIdString,
-	    GrainTypeHash,
-	    GrainTypeString,
-	    PayloadBinary,
-	    PayloadJson,
-	    PayloadXml,
-	    ModifiedOn,
-	    Version
-    )
-    SELECT
-	    @GrainIdHash,
-	    @GrainIdString,
-	    @GrainTypeHash,
-	    @GrainTypeString,
-		@ServideId,
-	    @PayloadBinary,
-	    @PayloadJson,
-	    @PayloadXml,
-	    GETUTCDATE(),
-	    @GrainStateVersion + 1
-     WHERE NOT EXISTS
-     (
-        SELECT 1
-        FROM Storage WITH(UPDLOCK, HOLDLOCK)
-        WHERE
-            GrainIdHash = @GrainIdHash AND @GrainIdHash IS NOT NULL
-            AND GrainTypeHash = @GrainTypeHash AND @GrainTypeHash IS NOT NULL
-            AND GrainIdString = @GrainIdString AND @GrainIdString IS NOT NULL
-            AND GrainTypeString = @GrainTypeString AND @GrainTypeString IS NOT NULL
-			AND ServiceId = @ServideId AND @ServideId IS NOT NULL
-            AND Version != 0
-     );
-    
-    SET @NewGrainStateVersion = @GrainStateVersion + 1;
+	INSERT INTO Storage
+	(
+		GrainIdHash,
+		GrainIdString,
+		GrainTypeHash,
+		GrainTypeString,
+		ServiceId,
+		PayloadBinary,
+		PayloadJson,
+		PayloadXml,
+		ModifiedOn,
+		Version
+	)
+	SELECT
+		@GrainIdHash,
+		@GrainIdString,
+		@GrainTypeHash,
+		@GrainTypeString,
+		@ServiceId,
+		@PayloadBinary,
+		@PayloadJson,
+		@PayloadXml,
+		GETUTCDATE(),
+		1
+	 WHERE NOT EXISTS
+	 (
+		SELECT 1
+		FROM Storage WITH(UPDLOCK, HOLDLOCK)
+		WHERE
+			GrainIdHash = @GrainIdHash AND @GrainIdHash IS NOT NULL
+			AND GrainTypeHash = @GrainTypeHash AND @GrainTypeHash IS NOT NULL
+			AND GrainIdString = @GrainIdString AND @GrainIdString IS NOT NULL
+			AND GrainTypeString = @GrainTypeString AND @GrainTypeString IS NOT NULL
+			AND ServiceId = @ServiceId AND @ServiceId IS NOT NULL
+			AND Version IS NOT NULL
+	 ) OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));
+
+	SET @NewGrainStateVersion = @@ROWCOUNT;
 END
 
-SELECT @NewGrainStateVersion AS GrainStateVersion;
+SELECT @NewGrainStateVersion;
 COMMIT TRANSACTION;
 
 
@@ -336,7 +335,7 @@ VALUES
 	N'GrainIdString_1_duplicate',
 	@GrainTypeHash,
 	N'GrainTypeString_1_duplicate',
-	@ServideId,
+	@ServiceId,
 	NULL,
 	N'{ "SomeObjectPayload": "GrainIdString_1__GrainTypeString_1_duplicate" }"',
 	NULL,
@@ -351,17 +350,49 @@ VALUES
 -- Also the optimizer is instructed to always use the same plan via index using the OPTIMIZE
 -- FOR UNKNOWN flags. These hints are only available in SQL Server 2008 and later. They
 -- should guarantee the execution time is robustly basically the same from query-to-query.
-SELECT	
-    PayloadBinary,
-    PayloadXml,
-    PayloadJson
+SELECT
+	PayloadBinary,
+	PayloadXml,
+	PayloadJson,
+	Version
 FROM
-    Storage
+	Storage
 WHERE
-    GrainIdHash = @GrainIdHash
-    AND GrainTypeHash = @GrainTypeHash    
-    AND GrainIdString = @GrainIdString
-    AND GrainTypeString = @GrainTypeString OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));
+	GrainIdHash = @GrainIdHash
+	AND GrainTypeHash = @GrainTypeHash
+	AND GrainIdString = @GrainIdString
+	AND GrainTypeString = @GrainTypeString
+	OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));
+	
+-- The application code will deserialize the relevant result. Not that the query optimizer
+-- estimates the result of rows based on its knowledge on the index. It doesn't know there
+-- will be only one row returned. Forcing the optimizer to process the first found row quickly
+-- creates an estimate for a one-row result and makes a difference on multi-million row tables.
+-- Also the optimizer is instructed to always use the same plan via index using the OPTIMIZE
+-- FOR UNKNOWN flags. These hints are only available in SQL Server 2008 and later. They
+-- should guarantee the execution time is robustly basically the same from query-to-query.
+BEGIN TRANSACTION;
+SET XACT_ABORT, NOCOUNT ON;
+DECLARE @NewGrainStateVersion AS INT = @GrainStateVersion;
+UPDATE Storage
+SET
+	PayloadBinary = NULL,
+	PayloadJson = NULL,
+	PayloadXml = NULL,
+	ModifiedOn = GETUTCDATE(),
+	Version = Version + 1,
+	@NewGrainStateVersion = Version + 1
+WHERE
+	GrainIdHash = @GrainIdHash AND @GrainIdHash IS NOT NULL
+	AND GrainTypeHash = @GrainTypeHash AND @GrainTypeHash IS NOT NULL
+	AND GrainIdString = @GrainIdString AND @GrainIdString IS NOT NULL
+	AND GrainTypeString = @GrainTypeString AND @GrainTypeString IS NOT NULL
+	AND ServiceId = @ServiceId AND @ServiceId IS NOT NULL
+	AND Version IS NOT NULL AND Version = @GrainStateVersion AND @GrainStateVersion IS NOT NULL
+	OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));
+
+SELECT @NewGrainStateVersion;
+COMMIT TRANSACTION;
 
 
 -- With the INCLUDE columns the effect of the previous definition
@@ -369,7 +400,8 @@ WHERE
 SELECT
     PayloadBinary,
     PayloadXml,
-    PayloadJson
+    PayloadJson,
+	Version
 FROM
 (
     SELECT
