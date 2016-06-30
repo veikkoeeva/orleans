@@ -3,18 +3,18 @@ Implementation notes:
 
 1) The general idea is that data is read and written through Orleans specific queries.
    Orleans operates on column names and types when reading and on parameter names and types when writing.
-   
+
 2) The implementations *must* preserve input and output names and types. Orleans uses these parameters to reads query results by name and type.
    Vendor and deployment specific tuning is allowed and contributions are encouraged as long as the interface contract
    is maintained.
-	 
+
 3) The implementation across vendor specific scripts *should* preserve the constraint names. This simplifies troubleshooting
    by virtue of uniform naming across concrete implementations.
 
 5) ETag for Orleans is an opaque column that represents a unique version. The type of its actual implementation
    is not important as long as it represents a unique version. In this implementation we use integers for versioning
 
-6) For the sake of being explicit and removing ambiguity, Orleans expects some queries to return either TRUE as >0 value 
+6) For the sake of being explicit and removing ambiguity, Orleans expects some queries to return either TRUE as >0 value
    or FALSE as =0 value. That is, affected rows or such does not matter. If an error is raised or an exception is thrown
    the query *must* ensure the entire transaction is rolled back and may either return FALSE or propagate the exception.
    Orleans handles exception as a failure and will retry.
@@ -58,8 +58,8 @@ CREATE TABLE OrleansMembershipTable
 	ProxyPort INT NULL,
 	SuspectTimes VARCHAR(8000) NULL,
 	StartTime DATETIME NOT NULL,
-	IAmAliveTime DATETIME NOT NULL,	
-	
+	IAmAliveTime DATETIME NOT NULL,
+
 	CONSTRAINT PK_MembershipTable_DeploymentId PRIMARY KEY(DeploymentId, Address, Port, Generation),
 	CONSTRAINT FK_MembershipTable_MembershipVersionTable_DeploymentId FOREIGN KEY (DeploymentId) REFERENCES OrleansMembershipVersionTable (DeploymentId)
 );
@@ -138,6 +138,86 @@ CREATE TABLE OrleansSiloMetricsTable
 	CONSTRAINT FK_SiloMetricsTable_MembershipVersionTable_DeploymentId FOREIGN KEY (DeploymentId) REFERENCES OrleansMembershipVersionTable (DeploymentId)
 );
 
+
+-- The design criteria for this table are:
+--
+-- 1. It can contain arbitrary content serialized as binary, XML or JSON. These formats
+-- are supported to allow one to take advantage of in-storage processing capabilities for
+-- these types if required. This should not incur extra cost on storage.
+--
+-- 2. The table design should scale with the idea of tens or hundreds (or even more) types
+-- of grains that may operate with even hundreds of thousands of grain IDs within each
+-- type of a grain.
+--
+-- 3. The table and its associated operations should remain stable. There should not be
+-- structural reason for unexpected delays in operations. It should be possible to also
+-- insert data reasonably fast without resource contention.
+--
+-- 4. For reasons in 2. and 3., the index should be as narrow as possible so it fits well in
+-- memory and should it require maintenance, it should be non-resource intensive. For this
+-- reason the index is narrow by design (ideally non-clustered). Currently the entity
+-- is recognized in the storage by
+-- the grain type and its ID, which are unique in Orleans silo. As adding two
+-- NVARCHAR(150) fields into a index would make it more resource intensive, the values
+-- are hashed into two INT type instance, which are made a compound index. When there are no
+-- collisions, the index can quickly locate the unique row. Along with the hashed index
+-- values, the NVARCHAR(150) values are also stored and they are used to prune hash
+-- collisions down to only one result row.
+--
+-- 5. The design leads to duplication in the storage. It is reasonable to assume there will
+-- a low number of services with a given service ID operational at any given time. Or that
+-- compared to the number of grain IDs, there are a fairly low number of different types of
+-- grain. The catch is that were these data separated to another table, it would make INSERT
+-- and UPDATE operations complicated and would require joins, temporary variables and additional
+-- indexes or some combinations of them to make it work. It looks like fitting strategy
+-- could be to use table compression.
+--
+-- 6. For the aforementioned reasons, grain state DELETE will set NULL to the data fields
+-- and updates the Version number normally. This should alleviate the need for index or
+-- statistics maintenance with the loss of some bytes of storage space. The table can be scrubbed
+-- in a separate maintenance operation.
+CREATE TABLE Storage
+(
+    -- These are for the book keeping. Orleans calculates
+    -- these hashes (Jenkins), which are unsigned 32 integers mapped to
+    -- the *Hash fields. The mapping is done in the code. The
+    -- *String columns contain the corresponding clear name fields.
+	--
+	-- If there are duplicates, they are resolved by using GrainIdString
+	-- and GrainNameString fields. It is assumed these would be rarely needed.
+    GrainIdHash		INT NOT NULL,
+    GrainIdString   NVARCHAR(150) NOT NULL,
+    GrainTypeHash   INT NOT NULL,
+    GrainTypeString NVARCHAR(150) NOT NULL,
+	ServiceId		NVARCHAR(150) NOT NULL,
+
+    -- The usage of the Payload records is exclusive in that
+    -- only one is populated at any given time and two others
+    -- are NULL. When all three are returned, the application
+    -- knows how to handle the situation. The advantage on separating
+	-- these by types is that various DB engines include additional
+	-- in-storage processing and "compression" capabilities depending on type.
+	--
+	-- One is free to alter the size of these fields.
+    PayloadBinary	BLOB NULL,
+    PayloadXml		TEXT NULL,
+    PayloadJson		TEXT NULL,
+
+    -- Informational field, no other use.
+    ModifiedOn DATETIME NOT NULL,
+
+    -- The version of this table.
+    Version INT NULL,
+
+    -- The following would in principle be the primary key, but it would be too thick
+	-- to be indexed, so the the values are hashed and only collisions will be solved
+	-- by using the fields. That is, after the indexed queries have pinpointed the right
+	-- rows down to [0, n] relevant ones, n being the number of collided value pairs.
+    -- CONSTRAINT PK_Storage PRIMARY KEY NONCLUSTERED (GrainIdString, GrainTypeString).
+    -- This would be better as a non-clustered index, but the usual MySQL engines do not support it.
+    CONSTRAINT IX_Storage PRIMARY KEY(GrainIdHash, GrainTypeHash)
+) ROW_FORMAT = COMPRESSED;
+
 INSERT INTO OrleansQuery(QueryKey, QueryText)
 VALUES
 (
@@ -179,7 +259,7 @@ INSERT INTO OrleansQuery(QueryKey, QueryText)
 VALUES
 (
 	'InsertMembershipKey','
-	call InsertMembershipKey(@DeploymentId, @Address, @Port, @Generation, 
+	call InsertMembershipKey(@DeploymentId, @Address, @Port, @Generation,
 	@Version, @SiloName, @HostName, @Status, @ProxyPort, @StartTime, @IAmAliveTime);'
 );
 
@@ -214,7 +294,7 @@ BEGIN
 		StartTime,
 		IAmAliveTime
 	)
-	SELECT 
+	SELECT
 		_DeploymentId,
 		_Address,
 		_Port,
@@ -230,7 +310,7 @@ BEGIN
 	SELECT 1
 	FROM
 		OrleansMembershipTable
-	WHERE 
+	WHERE
 		DeploymentId = _DeploymentId AND _DeploymentId IS NOT NULL
 		AND Address = _Address AND _Address IS NOT NULL
 		AND Port = _Port AND _Port IS NOT NULL
@@ -248,13 +328,146 @@ BEGIN
 	SET _ROWCOUNT = ROW_COUNT();
 
 	IF _ROWCOUNT = 0
-	THEN 
+	THEN
 		ROLLBACK;
 	ELSE
 		COMMIT;
 	END IF;
 	SELECT _ROWCOUNT;
 END$$
+
+DELIMITER ;
+
+CREATE PROCEDURE ClearStorage
+(
+	in _GrainIdHash INT,
+    in _GrainIdString NVARCHAR(150),
+    in _GrainTypeHash INT,
+    in _GrainTypeString NVARCHAR(150),
+    in _ServiceId NVARCHAR(150),
+    in _GrainStateVersion INT
+)
+BEGIN
+	DECLARE _newGrainStateVersion INT;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+    DECLARE EXIT HANDLER FOR SQLWARNING BEGIN ROLLBACK; RESIGNAL; END;
+
+    SET _newGrainStateVersion = _GrainStateVersion;
+
+    START TRANSACTION;
+    UPDATE Storage
+    SET
+	    PayloadBinary = NULL,
+	    PayloadJson = NULL,
+	    PayloadXml = NULL,
+	    Version = Version + 1,
+        _NewGrainStateVersion = Version + 1
+    WHERE
+	    GrainIdHash = _GrainIdHash AND _GrainIdHash IS NOT NULL
+        AND GrainTypeHash = _GrainTypeHash AND _GrainTypeHash IS NOT NULL
+        AND GrainIdString = _GrainIdString AND _GrainIdString IS NOT NULL
+        AND GrainTypeString = _GrainTypeString AND _GrainTypeString IS NOT NULL
+		AND ServiceId = _ServiceId AND _ServiceId IS NOT NULL
+        AND Version IS NOT NULL AND Version = _GrainStateVersion AND _GrainStateVersion IS NOT NULL
+        LIMIT 1;
+
+    SELECT _newGrainStateVersion;
+    COMMIT;
+END $$
+
+DELIMITER ;
+
+
+CREATE PROCEDURE WriteToStorage
+(
+	in _GrainIdHash INT,
+    in _GrainIdString NVARCHAR(150),
+    in _GrainTypeHash INT,
+    in _GrainTypeString NVARCHAR(150),
+    in _ServiceId NVARCHAR(150),
+    in _GrainStateVersion INT,
+    in _PayloadBinary BLOB,
+    in _PayloadJson TEXT,
+    in _PayloadXml TEXT
+)
+BEGIN
+	DECLARE _newGrainStateVersion INT;
+    DECLARE _rowCount INT;
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+    DECLARE EXIT HANDLER FOR SQLWARNING BEGIN ROLLBACK; RESIGNAL; END;
+
+    SET _newGrainStateVersion = _GrainStateVersion;
+
+    START TRANSACTION;
+	IF _GrainStateVersion IS NOT NULL
+	THEN
+		UPDATE Storage
+		SET
+			PayloadBinary = _PayloadBinary,
+			PayloadJson = _PayloadJson,
+			PayloadXml = _PayloadXml,
+			ModifiedOn = UTC_TIMESTAMP(),
+            Version = Version + 1
+		WHERE
+			GrainIdHash = _GrainIdHash AND _GrainIdHash IS NOT NULL
+			AND GrainTypeHash = _GrainTypeHash AND _GrainTypeHash IS NOT NULL
+			AND GrainIdString = _GrainIdString AND _GrainIdString IS NOT NULL
+			AND GrainTypeString = _GrainTypeString AND _GrainTypeString IS NOT NULL
+			AND ServiceId = _ServiceId AND _ServiceId IS NOT NULL
+			AND Version IS NOT NULL AND Version = _GrainStateVersion AND _GrainStateVersion IS NOT NULL
+			LIMIT 1;
+
+        IF ROW_COUNT() > 0
+        THEN
+			SET _newGrainStateVersion = _GrainStateVersion + 1;
+        END IF;
+	END IF;
+
+    IF _newGrainStateVersion IS NULL AND _GrainStateVersion IS NULL
+	THEN
+		INSERT INTO Storage
+		(
+			GrainIdHash,
+			GrainIdString,
+			GrainTypeHash,
+			GrainTypeString,
+			ServiceId,
+			PayloadBinary,
+			PayloadJson,
+			PayloadXml,
+			ModifiedOn,
+			Version
+		)
+		SELECT
+			_GrainIdHash,
+			_GrainIdString,
+			_GrainTypeHash,
+			_GrainTypeString,
+			_ServiceId,
+			_PayloadBinary,
+			_PayloadJson,
+			_PayloadXml,
+            UTC_TIMESTAMP(),
+			1
+		WHERE NOT EXISTS
+		(
+			SELECT 1
+			FROM Storage
+			WHERE
+				GrainIdHash = _GrainIdHash AND _GrainIdHash IS NOT NULL
+				AND GrainTypeHash = _GrainTypeHash AND _GrainTypeHash IS NOT NULL
+				AND GrainIdString = _GrainIdString AND _GrainIdString IS NOT NULL
+				AND GrainTypeString = _GrainTypeString AND _GrainTypeString IS NOT NULL
+				AND ServiceId = _ServiceId AND _ServiceId IS NOT NULL
+				AND Version = @GrainStateVersion AND @GrainStateVersion IS NOT NULL
+		) LIMIT 1;
+
+		SET _newGrainStateVersion = 1;
+	END IF;
+
+    SELECT _newGrainStateVersion AS NewGrainStateVersion;
+    COMMIT;
+END $$
 
 DELIMITER ;
 
@@ -317,8 +530,8 @@ VALUES
 		Period = @Period,
 		GrainHash = @GrainHash,
 		Version = last_insert_id(Version+1);
-	
-	
+
+
 	SELECT last_insert_id() AS Version;
 ');
 
@@ -330,7 +543,7 @@ VALUES
 	(
 		DeploymentId,
 		ClientId,
-		Address,			
+		Address,
 		HostName,
 		CpuUsage,
 		MemoryUsage,
@@ -354,8 +567,8 @@ VALUES
 		@ReceivedMessages,
 		@ConnectedGatewayCount
 	)
-	ON DUPLICATE KEY 
-	UPDATE 
+	ON DUPLICATE KEY
+	UPDATE
 		Address = @Address,
 		HostName = @HostName,
 		CpuUsage = @CpuUsage,
@@ -385,7 +598,7 @@ VALUES
 		MemoryUsage,
 		SendQueueLength,
 		ReceiveQueueLength,
-		SentMessages,	
+		SentMessages,
 		ReceivedMessages,
 		ActivationCount,
 		RecentlyUsedActivationCount,
@@ -407,7 +620,7 @@ VALUES
 		@MemoryUsage,
 		@SendQueueLength,
 		@ReceiveQueueLength,
-		@SentMessages,	
+		@SentMessages,
 		@ReceivedMessages,
 		@ActivationCount,
 		@RecentlyUsedActivationCount,
@@ -415,8 +628,8 @@ VALUES
 		@IsOverloaded,
 		@ClientCount
 	)
-	ON DUPLICATE KEY 
-	UPDATE 
+	ON DUPLICATE KEY
+	UPDATE
 		Address = @Address,
 		Port = @Port,
 		Generation = @Generation,
@@ -472,11 +685,11 @@ VALUES
 	FROM
 		OrleansMembershipVersionTable v
 		-- This ensures the version table will returned even if there is no matching membership row.
-		LEFT OUTER JOIN OrleansMembershipTable m ON v.DeploymentId = m.DeploymentId	
+		LEFT OUTER JOIN OrleansMembershipTable m ON v.DeploymentId = m.DeploymentId
 		AND Address = @Address AND @Address IS NOT NULL
 		AND Port = @Port AND @Port IS NOT NULL
 		AND Generation = @Generation AND @Generation IS NOT NULL
-	WHERE 
+	WHERE
 		v.DeploymentId = @DeploymentId AND @DeploymentId IS NOT NULL;
 ');
 
@@ -625,6 +838,40 @@ VALUES
 (
 	'DeleteReminderRowsKey','
 	DELETE FROM OrleansRemindersTable
-	WHERE 
+	WHERE
 		ServiceId = @ServiceId AND @ServiceId IS NOT NULL;
 ');
+
+INSERT INTO OrleansQuery(QueryKey, QueryText)
+VALUES
+(
+	'ReadFromStorageKey',
+	'SELECT
+        PayloadBinary,
+        PayloadXml,
+        PayloadJson,
+        UTC_TIMESTAMP(),
+        Version
+    FROM
+        Storage
+    WHERE
+        GrainIdHash = @GrainIdHash
+        AND GrainTypeHash = @GrainTypeHash AND @GrainTypeHash IS NOT NULL
+        AND GrainIdString = @GrainIdString AND GrainIdString IS NOT NULL
+        AND GrainTypeString = @GrainTypeString AND GrainTypeString IS NOT NULL
+        LIMIT 1;'
+);
+
+INSERT INTO OrleansQuery(QueryKey, QueryText)
+VALUES
+(
+	'WriteToStorageKey','
+	call WriteToStorage(@GrainIdHash, @GrainIdString, @GrainTypeHash, @GrainTypeString, @ServiceId, @GrainStateVersion, @PayloadBinary, @PayloadJson, @PayloadXml);'
+);
+
+INSERT INTO OrleansQuery(QueryKey, QueryText)
+VALUES
+(
+	'ClearStorageKey','
+	call ClearStorage(@GrainIdHash, @GrainIdString, @GrainTypeHash, @GrainTypeString, @ServiceId, @GrainStateVersion);'
+);

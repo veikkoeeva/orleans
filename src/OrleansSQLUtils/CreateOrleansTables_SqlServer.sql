@@ -778,11 +778,7 @@ VALUES
 			OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));
 	END
 
-	-- If no rows were updated, the reason could be that a new storage may have
-	-- been brought online or it has been reset somehow while the silo is running
-	-- having the grains in memory. Let us try to insert them anyhow as it is more
-	-- more robust.
-	IF @@ROWCOUNT = 0
+	IF @NewGrainStateVersion IS NULL AND GrainStateVersion IS NULL
 	BEGIN
 		INSERT INTO Storage
 		(
@@ -818,41 +814,16 @@ VALUES
 				AND GrainIdString = @GrainIdString AND @GrainIdString IS NOT NULL
 				AND GrainTypeString = @GrainTypeString AND @GrainTypeString IS NOT NULL
 				AND ServiceId = @ServiceId AND @ServiceId IS NOT NULL
-				AND Version IS NOT NULL
+				AND Version != @GrainStateVersion AND @GrainStateVersion IS NOT NULL
 		 ) OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));
 
-		SET @NewGrainStateVersion = @@ROWCOUNT;
+		SET @NewGrainStateVersion = 1;
 	END
 
 	SELECT @NewGrainStateVersion;
 	COMMIT TRANSACTION;'
 );
 
-INSERT INTO OrleansQuery(QueryKey, QueryText)
-VALUES
-(
-	'ReadFromStorageKey',
-	'-- The application code will deserialize the relevant result. Not that the query optimizer
-    -- estimates the result of rows based on its knowledge on the index. It doesn not know there
-    -- will be only one row returned. Forcing the optimizer to process the first found row quickly
-    -- creates an estimate for a one-row result and makes a difference on multi-million row tables.
-    -- Also the optimizer is instructed to always use the same plan via index using the OPTIMIZE
-    -- FOR UNKNOWN flags. These hints are only available in SQL Server 2008 and later. They
-    -- should guarantee the execution time is robustly basically the same from query-to-query.
-    SELECT
-        PayloadBinary,
-        PayloadXml,
-        PayloadJson,
-        Version
-    FROM
-        Storage
-    WHERE
-        GrainIdHash = @GrainIdHash
-        AND GrainTypeHash = @GrainTypeHash
-        AND GrainIdString = @GrainIdString
-        AND GrainTypeString = @GrainTypeString
-        OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));'
-);
 
 INSERT INTO OrleansQuery(QueryKey, QueryText)
 VALUES
@@ -880,4 +851,31 @@ VALUES
 
     SELECT @NewGrainStateVersion;
     COMMIT TRANSACTION;'
+);
+
+
+INSERT INTO OrleansQuery(QueryKey, QueryText)
+VALUES
+(
+	'ReadFromStorageKey',
+	'-- The application code will deserialize the relevant result. Not that the query optimizer
+    -- estimates the result of rows based on its knowledge on the index. It does not know there
+    -- will be only one row returned. Forcing the optimizer to process the first found row quickly
+    -- creates an estimate for a one-row result and makes a difference on multi-million row tables.
+    -- Also the optimizer is instructed to always use the same plan via index using the OPTIMIZE
+    -- FOR UNKNOWN flags. These hints are only available in SQL Server 2008 and later. They
+    -- should guarantee the execution time is robustly basically the same from query-to-query.
+    SELECT
+        PayloadBinary,
+        PayloadXml,
+        PayloadJson,
+        Version
+    FROM
+        Storage
+    WHERE
+        GrainIdHash = @GrainIdHash
+        AND GrainTypeHash = @GrainTypeHash
+        AND GrainIdString = @GrainIdString
+        AND GrainTypeString = @GrainTypeString
+        OPTION(FAST 1, OPTIMIZE FOR(@GrainIdHash UNKNOWN, @GrainTypeHash UNKNOWN));'
 );
