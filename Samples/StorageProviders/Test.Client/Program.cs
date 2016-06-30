@@ -25,7 +25,7 @@ namespace Test.Client
             var config = ClientConfiguration.LocalhostSilo();
             GrainClient.Initialize(config);
 
-            var grain = GrainClient.GrainFactory.GetGrain<IPerson>(0);
+            var grain = GrainClient.GrainFactory.GetGrain<IPerson>(1);
 
             // If the name is set, we've run this code before.
             var name = grain.GetFirstName().Result;
@@ -33,13 +33,13 @@ namespace Test.Client
             if ( name != null)
             {
                 Console.WriteLine("\n\nThis was found in the persistent store: {0}, {1}, {2}\n\n",
-                    name, 
-                    grain.GetLastName().Result, 
+                    name,
+                    grain.GetLastName().Result,
                     grain.GetGender().Result.ToString());
             }
-            else
+            //else
             {
-                grain.SetPersonalAttributes(new PersonalAttributes { FirstName = "John", LastName = "Doe", Gender = GenderType.Male }).Wait();
+                grain.SetPersonalAttributes(new PersonalAttributes { FirstName = "John2", LastName = "Doe2", Gender = GenderType.Male }).Wait();
                 Console.WriteLine("\n\nWe just wrote something to the persistent store. Please verify!\n\n");
             }
 
