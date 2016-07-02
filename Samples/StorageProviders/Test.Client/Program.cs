@@ -12,7 +12,7 @@ namespace Test.Client
     public class Program
     {
         static void Main(string[] args)
-        {
+        {            
             // The Orleans environment is initialized in its own app domain in order to more
             // closely emulate the distributed situation, when the client and the server cannot
             // pass data via shared memory.
@@ -25,21 +25,23 @@ namespace Test.Client
             var config = ClientConfiguration.LocalhostSilo();
             GrainClient.Initialize(config);
 
-            var grain = GrainClient.GrainFactory.GetGrain<IPerson>(0);
+            var grain = GrainClient.GrainFactory.GetGrain<IPerson>(1);
+            var grain2 = GrainClient.GrainFactory.GetGrain<IPerson>(1);
 
             // If the name is set, we've run this code before.
             var name = grain.GetFirstName().Result;
+            var name2 = grain2.GetFirstName().Result;
 
             if ( name != null)
             {
                 Console.WriteLine("\n\nThis was found in the persistent store: {0}, {1}, {2}\n\n",
-                    name, 
-                    grain.GetLastName().Result, 
+                    name,
+                    grain.GetLastName().Result,
                     grain.GetGender().Result.ToString());
             }
-            else
+            //else
             {
-                grain.SetPersonalAttributes(new PersonalAttributes { FirstName = "John", LastName = "Doe", Gender = GenderType.Male }).Wait();
+                grain.SetPersonalAttributes(new PersonalAttributes { FirstName = "John2", LastName = "Doe2", Gender = GenderType.Male }).Wait();
                 Console.WriteLine("\n\nWe just wrote something to the persistent store. Please verify!\n\n");
             }
 

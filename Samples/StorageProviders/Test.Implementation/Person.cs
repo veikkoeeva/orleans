@@ -10,7 +10,7 @@ using Test.Interfaces;
 namespace Test.Implementation
 {
     [StorageProvider(ProviderName = "TestStore")]
-    public class Person : Grain<PersonState>, Test.Interfaces.IPerson
+    public class Person : Grain<PersonState<int>>, Test.Interfaces.IPerson
     {
         Task IPerson.SetPersonalAttributes(PersonalAttributes props)
         {
@@ -36,8 +36,9 @@ namespace Test.Implementation
         }
     }
 
-    public class PersonState
+    public class PersonState<T>
     {
+        public T ExtraData { get; set; }
         public string FirstName { get; set; }
         public string LastName { get; set; }
         public GenderType Gender { get; set; }

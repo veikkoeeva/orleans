@@ -139,14 +139,21 @@ namespace Host
 
             //JSON Files
             var props = new Dictionary<string, string>();
-            props["RootDirectory"] = @".\Samples.FileStorage";
-            config.Globals.RegisterStorageProvider<Samples.StorageProviders.OrleansFileStorage>("TestStore", props);
+            //props["DataConnectionString"] = @"Server = 127.0.0.1; Database = orleansstoragetest; Uid = root; Pwd = root;";
+            //props["AdoInvariant"] = "MySql.Data.MySqlClient";
+            props["DataConnectionString"] = @"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=OrleansStorageTest;Integrated Security=True;Pooling=False;Max Pool Size=200;Asynchronous Processing=True;MultipleActiveResultSets=True";
+            props["AdoInvariant"] = "System.Data.SqlClient";
+            props["UseJsonFormat"] = "true";
+            //props["UseXmlFormat"] = "true";
+            //props["UseBinaryFormat"] = "true";
+            //config.Globals.RegisterStorageProvider<Samples.StorageProviders.OrleansFileStorage>("TestStore", props);
+            config.Globals.RegisterStorageProvider<Samples.StorageProviders.RelationalStorageProvider>("TestStore", props);
 
-//            //MongoDB
-//            var props = new Dictionary<string, string>();
-//            props["Database"] = "orleanssamples";
-//            props["ConnectionString"] = "mongodb://localhost:27017/";
-//            config.Globals.RegisterStorageProvider<Samples.StorageProviders.MongoDBStorage>("TestStore", props);
+            //            //MongoDB
+            //            var props = new Dictionary<string, string>();
+            //            props["Database"] = "orleanssamples";
+            //            props["ConnectionString"] = "mongodb://localhost:27017/";
+            //            config.Globals.RegisterStorageProvider<Samples.StorageProviders.MongoDBStorage>("TestStore", props);
 
             siloHost = new SiloHost(siloName, config);
 
@@ -159,11 +166,11 @@ namespace Host
         public void PrintUsage()
         {
             Console.WriteLine(
-@"USAGE: 
+@"USAGE:
     OrleansHost.exe [<siloName> [<configFile>]] [DeploymentId=<idString>] [/debug]
 Where:
     <siloName>      - Name of this silo in the Config file list (optional)
-    DeploymentId=<idString> 
+    DeploymentId=<idString>
                     - Which deployment group this host instance should run in (optional)
     /debug          - Turn on extra debug output during host startup (optional)");
         }
