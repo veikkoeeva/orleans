@@ -22,6 +22,7 @@ using Xunit.Abstractions;
 using Program = OneBoxDeployment.Api.Program;
 using System.Net.Mime;
 using System.Text.Json;
+using Microsoft.Extensions.Hosting;
 
 namespace OneBoxDeployment.IntegrationTests
 {
@@ -61,12 +62,12 @@ namespace OneBoxDeployment.IntegrationTests
         /// <summary>
         /// The OneBoxDeployment Web API server.
         /// </summary>
-        private IWebHost ApiHost { get; set; }
+        private IHost ApiHost { get; set; }
 
         /// <summary>
         /// The OneBoxDeployment identity server.
         /// </summary>
-        private IWebHost IdentityHost { get; set; }
+        private IHost IdentityHost { get; set; }
 
         /// <summary>
         /// The currently running Orleans siloes.
@@ -261,6 +262,14 @@ namespace OneBoxDeployment.IntegrationTests
             //IdentityHost = Identity.Program.InternalBuildWebHost(new[] { "--server.urls", DefaultIdentityRootUrl }, new Dictionary<string, string> { { "WellKnownTestUsers", wellKnownTestUsers }, { "integrationtest", "yes" } });
             //var identityServerTask = IdentityHost.StartAsync();
 
+            try
+            {
+                await apiServerTask;
+            }
+            catch(Exception ex)
+            {
+
+            }
             await Task.WhenAll(apiServerTask/*, identityServerTask*/).ConfigureAwait(false);
         }
 

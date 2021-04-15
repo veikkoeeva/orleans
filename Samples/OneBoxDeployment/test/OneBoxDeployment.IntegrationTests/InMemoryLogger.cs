@@ -54,7 +54,7 @@ namespace OneBoxDeployment.IntegrationTests
         /// <summary>
         /// The messages stored while logging.
         /// </summary>
-        private List<LogMessage> Messages { get; } = new List<LogMessage>();
+        private static List<LogMessage> Messages { get; } = new List<LogMessage>();
 
         /// <inheritdoc />
         public void Dispose() { }

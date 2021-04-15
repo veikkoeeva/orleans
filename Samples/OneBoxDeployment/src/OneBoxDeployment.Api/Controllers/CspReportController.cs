@@ -16,7 +16,7 @@ namespace OneBoxDeployment.Api.Controllers
         /// <summary>
         /// The logger.
         /// </summary>
-        private ILogger Logger { get; }
+        private ILogger<CspReportController> Logger { get; }
 
 
         /// <summary>

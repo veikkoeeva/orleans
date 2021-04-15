@@ -72,6 +72,7 @@ namespace OneBoxDeployment.IntegrationTests.Tests
 
             //There were four calls to the API and it should log four events of this kind.
             var messages = InMemoryLoggerProvider.LogMessages;
+            var am = messages.Count(m => m.EventId == Events.TestEvent.Id);
             Assert.Equal(4, messages.Count(m => m.EventId == Events.TestEvent.Id));
         }
     }

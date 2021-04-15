@@ -29,7 +29,7 @@ namespace OneBoxDeployment.Api.Controllers
         /// <summary>
         /// The logger this controller uses.
         /// </summary>
-        private ILogger Logger { get; }
+        private ILogger<OneBoxDeploymentController> Logger { get; }
 
 
         /// <summary>
@@ -54,7 +54,7 @@ namespace OneBoxDeployment.Api.Controllers
         public async Task<ActionResult<int>> Increment(Increment increment)
         {
             //This logging is here to demonstrate it can be read in the tests.
-            Logger.LogInformation(Events.TestEvent.Id, Events.TestEvent.FormatString, increment);
+            Logger.LogInformation(Events.TestEvent.Id, Events.TestEvent.FormatString, Events.TestEvent.Id.Id, increment);
 
             var testStateGrain = ClusterClient.GetGrain<ITestStateGrain>(increment.GrainId);
             var currentState = await testStateGrain.Increment(increment.IncrementBy).ConfigureAwait(false);

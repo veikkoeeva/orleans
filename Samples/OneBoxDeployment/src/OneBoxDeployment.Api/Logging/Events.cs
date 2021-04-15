@@ -21,6 +21,6 @@ namespace OneBoxDeployment.Api.Logging
         /// <summary>
         /// A test event for OneBoxDeployment.
         /// </summary>
-        public static EventStruct TestEvent { get; } = new EventStruct(new EventId(10001, nameof(TestEvent)), "A test event: {info}.");
+        public static EventStruct TestEvent { get; } = new EventStruct(new EventId(10001, nameof(TestEvent)), "A test event {eventid}: {info}.");
     }
 }

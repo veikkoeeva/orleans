@@ -58,7 +58,7 @@ namespace OneBoxDeployment.Api
         /// <summary>
         /// The environment specific logger.
         /// </summary>
-        public Microsoft.Extensions.Logging.ILogger Logger { get; }
+        public Microsoft.Extensions.Logging.ILogger Logger { get; set; }
 
         /// <summary>
         /// The hosting environment.
@@ -72,9 +72,9 @@ namespace OneBoxDeployment.Api
         /// <param name="logger">The environment specific logger.</param>
         /// <param name="configuration">The environment specific configuration object.</param>
         /// <param name="env">The environment information to use in checking per deployment type configuration value validity.</param>
-        public Startup(ILogger<Startup> logger, IConfiguration configuration, IWebHostEnvironment env)
+        public Startup(/*ILogger<Startup> logger, */IConfiguration configuration, IWebHostEnvironment env)
         {
-            Logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            //Logger = logger ?? throw new ArgumentNullException(nameof(logger));
             Configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             Environment = env ?? throw new ArgumentNullException(nameof(env));
 
@@ -106,6 +106,10 @@ namespace OneBoxDeployment.Api
         /// <param name="services">The ASP.NET services collection.</param>
         public void ConfigureServices(IServiceCollection services)
         {
+            var key = Configuration["APPINSIGHTS_CONNECTIONSTRING"];
+            key = "InstrumentationKey=529b1bef-3720-401a-860c-10828c6d4a9d;IngestionEndpoint=https://westeurope-3.in.applicationinsights.azure.com/";
+            services.AddApplicationInsightsTelemetry(key);
+
             if(Environment.IsProduction())
             {
                 services.AddApplicationInsightsTelemetry(Configuration);
@@ -258,8 +262,10 @@ namespace OneBoxDeployment.Api
         /// <param name="app">The application to configure.</param>
         /// <param name="env">The environment information to use in configuration phase.</param>
         /// <param name="applicationLifetime"></param>
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, IHostApplicationLifetime applicationLifetime)
+        public void Configure(ILogger<Startup> logger, IApplicationBuilder app, IWebHostEnvironment env, IHostApplicationLifetime applicationLifetime)
         {
+            Logger = logger;
+            app.UseSerilogRequestLogging();
             app.UseProblemDetails();
             if(!env.IsProduction())
             {
